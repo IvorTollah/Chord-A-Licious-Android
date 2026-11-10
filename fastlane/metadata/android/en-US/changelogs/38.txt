@@ -1,0 +1,1 @@
+Chord shapes are now chosen for the shortest hand movement in every phrasing, and Busker mode shows the chord shape (and the next one) under the grid.

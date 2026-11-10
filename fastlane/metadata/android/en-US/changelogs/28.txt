@@ -1,0 +1,1 @@
+Open a song from a YouTube link when its chords have already been analysed on the website.

@@ -1,0 +1,5 @@
+- Chord labels in blue to match the website
+- Pro and Account buttons the same size; tap Pro to compare Free and Pro
+- Song title can be changed when saving a Favourite
+- PDF chord sheets: header with the song title, "Page 1 of N" footer, and tidier last rows in the condensed layout
+- Option to share a saved song with the identification database

@@ -1,0 +1,1 @@
+Livelier look: Poppins lettering, a glowing Song selection panel, a picture-led Import dialog, a bigger Import icon on the song screen and glowing silver measure borders.

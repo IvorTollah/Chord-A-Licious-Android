@@ -1,0 +1,1 @@
+Chord shapes now stay close together from chord to chord, chord names fit the busker boxes, a small countdown corner label, a clearer next chord and a tidier slow-measure dialog.

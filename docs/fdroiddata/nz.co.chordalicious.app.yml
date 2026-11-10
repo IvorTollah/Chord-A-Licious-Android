@@ -1,0 +1,31 @@
+# Draft recipe for https://gitlab.com/fdroid/fdroiddata  (metadata/nz.co.chordalicious.app.yml)
+# Fill in the TODO lines once the source is public, then open a merge request there.
+Categories:
+  - Multimedia
+License: GPL-3.0-or-later
+AuthorWebSite: https://chordalicious.co.nz
+WebSite: https://chordalicious.co.nz
+SourceCode: https://github.com/IvorTollah/Chord-A-Licious-Android
+IssueTracker: https://github.com/IvorTollah/Chord-A-Licious-Android/issues
+
+AntiFeatures:
+  NonFreeNet:
+    en-US: The chords are worked out by the Chord-A-Licious server (closed source), which the app needs to work.
+
+AutoName: Chord-A-Licious
+
+RepoType: git
+Repo: https://github.com/IvorTollah/Chord-A-Licious-Android.git
+
+Builds:
+  - versionName: 0.9.19
+    versionCode: 42
+    commit: v0.9.19
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 0.9.19
+CurrentVersionCode: 42

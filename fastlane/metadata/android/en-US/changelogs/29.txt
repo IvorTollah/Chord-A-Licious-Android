@@ -1,0 +1,1 @@
+New home screen: logo pill, Import a Song button, Chord of the moment carousel and a lively Listening screen with Cancel. Redesigned song settings with icons, a View menu and silver sliders. Swipe the chord carousel to move through the song.

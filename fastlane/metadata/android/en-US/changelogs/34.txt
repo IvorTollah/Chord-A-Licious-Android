@@ -1,0 +1,1 @@
+3D home buttons, a playing-card Chord of the moment, one clean border on playing measures, sliders in their own pills, and the PDF export fixed.

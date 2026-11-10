@@ -1,0 +1,1 @@
+A clear green notice while the audio is adjusted for a new key, chosen chord shapes can now be kept, a bigger three-chord carousel, slimmer sliders, and a proper side-by-side busker layout in landscape.

@@ -1,0 +1,20 @@
+Open an audio file on your phone and Chord-A-Licious shows you its chords as a bar-by-bar grid, with the lyrics and a chord diagram for each one, so you can play along.
+
+<b>What you can do</b>
+• Open an audio file, or record yourself playing (Pro), and get the chords, key, tempo and key changes
+• Play along with a count-in, a metronome, a loop you drag out on the grid, and slow-down for hard parts
+• Busker mode: a big, clear grid with a slim row of controls, made for a music stand
+• Chord diagrams for guitar, bass, ukulele, banjo, mandolin and keyboard, with left-handed view, capo and ten tunings
+• Change any chord, swap its fingering, and keep your favourite fingerings as chord templates
+• Save songs to Favourites in your own categories
+• Print or save a chord sheet as a PDF, in full or condensed form
+
+<b>Free and Pro</b>
+Free covers the basics. Pro (NZ$2 a month or NZ$20 a year, with a 30 day free trial when you make an account) switches everything on. Plans are managed by the Chord-A-Licious server and bought in your browser through Stripe, so the app contains no payment code and no Google services.
+
+<b>How it works</b>
+The chord analysis runs on the Chord-A-Licious server (chordalicious.co.nz), so the app needs an internet connection and a free account. Audio you open is sent to the server to be analysed. See the privacy notes in the source repository.
+
+Streaming links are not analysed in the app; use the website for that. Songs already analysed there can be opened here from their YouTube link.
+
+Free software, GPL-3.0-or-later. No ads, no trackers, no analytics.

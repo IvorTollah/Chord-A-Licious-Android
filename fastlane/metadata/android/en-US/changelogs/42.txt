@@ -1,0 +1,1 @@
+Edit screen opens on the shape shown in the grid. Slider labels smaller. Busker landscape chord diagrams grow to fill the panel.
