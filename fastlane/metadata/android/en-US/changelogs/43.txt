@@ -1,0 +1,1 @@
+Barre phrasing now starts on frets 1-7 and avoids high shapes. Stretchy chord shapes (such as G#m) are replaced by easier ones. Triads stay near the nut. Song info: filled yellow star when a song is in Favourites, and a prompt to replace an existing favourite instead of saving a duplicate.

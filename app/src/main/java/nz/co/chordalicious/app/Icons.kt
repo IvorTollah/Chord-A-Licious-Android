@@ -82,6 +82,8 @@ val ICON_COUNTIN = listOf(
     IconOp("M31.2 24.5 V31 M35.5 24.5 V31 M39.8 24.5 V31", stroke = Cal.steel, sw = 1.2f))
 val ICON_EYE = listOf(IconOp("M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z", sw = 1.6f), IconOp(circ(12f, 12f, 3f), sw = 1.6f))
 val ICON_STAR = listOf(IconOp("M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z", stroke = Color(0xFFFBBF24)))
+/** The same star filled in yellow: shown on the Favourites button once the open song is saved. */
+val ICON_STAR_FILLED = listOf(IconOp("M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z", fill = Color(0xFFFBBF24), stroke = Color(0xFFFBBF24)))
 val ICON_PRINT = listOf(IconOp("M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2", stroke = Color(0xFF7DD3FC)), IconOp(rect(7f, 14f, 10f, 7f, 1f), stroke = Color(0xFF7DD3FC)))
 /** A guitar headstock with its tuning pegs. */
 val ICON_TUNING = listOf(

@@ -119,6 +119,8 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
     var favCat by remember { mutableStateOf(song.favCat) }
     var titleOv by remember { mutableStateOf<String?>(null) }
     var saveDlg by remember { mutableStateOf(false) }
+    var dupHit by remember { mutableStateOf<Fav?>(null) }                 // a Favourite with this song's name that the new save could replace
+    var dupDo by remember { mutableStateOf<((String) -> Unit)?>(null) }
     val templates = remember { mutableStateMapOf<String, Tpl>() }     // Pro: "use this fingering for every future song"
     var showTpl by remember { mutableStateOf(false) }
     LaunchedEffect(full) { if (full) try { templates.clear(); templates.putAll(api.templates()) } catch (_: Exception) {} }
@@ -653,16 +655,32 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
                         Text("Add this song to the identification database so other Chord-ers can find it", fontSize = 12.sp, color = Cal.muted, modifier = Modifier.weight(1f))
                     } } },
             confirmButton = { TextButton(onClick = {
-                saveDlg = false; saving = true; saveMsg = null
-                scope.launch {
-                    try {
-                        val id = api.saveFavourite(song.copy(title = ttl.trim().ifBlank { song.title }), bars, bars.indices.map { edits[it] ?: bars[it].chord }, edits.keys.toSet(), cat.trim(), favId, shareDb)
-                        favId = id; favCat = cat.trim(); titleOv = ttl.trim().ifBlank { null }; saveMsg = "Saved to Favourites."
-                    } catch (e: ApiError) { saveMsg = e.msg } catch (e: Exception) { saveMsg = "Couldn't save (" + (e.message ?: e.javaClass.simpleName) + ")." }
-                    saving = false
+                val saveTitle = ttl.trim().ifBlank { song.title }
+                fun doSave(useId: String) {
+                    saveDlg = false; saving = true; saveMsg = null
+                    scope.launch {
+                        try {
+                            val id = api.saveFavourite(song.copy(title = saveTitle), bars, bars.indices.map { edits[it] ?: bars[it].chord }, edits.keys.toSet(), cat.trim(), useId, shareDb)
+                            favId = id; favCat = cat.trim(); titleOv = ttl.trim().ifBlank { null }; saveMsg = "Saved to Favourites."
+                        } catch (e: ApiError) { saveMsg = e.msg } catch (e: Exception) { saveMsg = "Couldn't save (" + (e.message ?: e.javaClass.simpleName) + ")." }
+                        saving = false
+                    }
+                }
+                if (favId.isNotEmpty()) doSave(favId)
+                else scope.launch {                                                  // a song with this name may already be saved: offer to replace it instead of adding a second copy
+                    fun norm(x: String) = x.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+                    val hit = try { api.favourites().firstOrNull { f -> norm(f.title) == norm(saveTitle) && (norm(song.artist).isEmpty() || norm(f.artist).isEmpty() || norm(f.artist) == norm(song.artist)) } } catch (_: Exception) { null }
+                    if (hit != null) { dupHit = hit; dupDo = { id -> doSave(id) } } else doSave("")
                 }
             }) { Text("Save") } },
             dismissButton = { TextButton(onClick = { saveDlg = false }) { Text("Cancel") } })
+        dupHit?.let { hit ->
+            AlertDialog(onDismissRequest = { dupHit = null }, containerColor = Cal.panel,
+                title = { Text("Already in your Favourites") },
+                text = { Text("\"${hit.title}\" is already saved" + (if (hit.category.isNotBlank()) " in \"${hit.category}\"" else "") + ". Replace the saved version with this one, or save this one as well?") },
+                confirmButton = { TextButton(onClick = { dupHit = null; dupDo?.invoke(hit.id) }) { Text("Replace saved") } },
+                dismissButton = { Row { TextButton(onClick = { dupHit = null }) { Text("Cancel") }; TextButton(onClick = { dupHit = null; dupDo?.invoke("") }) { Text("Save anyway") } } })
+        }
     }
     androidx.activity.compose.BackHandler(enabled = !showOptions && editBar == null && editSound == null && slowFor == null) { onBack() }
     androidx.activity.compose.BackHandler(enabled = busker && !showOptions && editBar == null && editSound == null && slowFor == null) { busker = false }
@@ -863,7 +881,7 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
                 Spacer(Modifier.height(24.dp))
             } else Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ActionTile(ICON_STAR, if (saving) "Saving…" else if (favId.isNotEmpty()) "Save changes" else "Favourites", Modifier.weight(1f), enabled = !saving) { saveDlg = true }
+                    ActionTile(if (favId.isNotEmpty()) ICON_STAR_FILLED else ICON_STAR, if (saving) "Saving…" else if (favId.isNotEmpty()) "Save changes" else "Favourites", Modifier.weight(1f), enabled = !saving) { saveDlg = true }
                     ActionTile(ICON_PRINT, if (printing) "Making PDF…" else "Print / PDF", Modifier.weight(1f), enabled = !printing) { printDlg = true }
                 }
                 saveMsg?.let { Text(it, color = if (it.startsWith("Saved") || it.startsWith("PDF")) Cal.good else Cal.bad, fontSize = 13.sp) }

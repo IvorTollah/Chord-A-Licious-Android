@@ -400,7 +400,11 @@ private fun searchFrettedScored(inst: InstSpec, T: IntArray, root: Int, ivs: Int
         // a second finger lying flat across several strings is awkward
         val awkward = if (inst.bass) 0 else fretted.filter { it > lo }.groupBy { it }.count { it.value.size > 1 }
         val maxFret = cur.max(); val opens = cur.count { it == 0 }
-        var score = span * 0.3 + (n - played.size) * 1.0 + (if (bassPc == root) 0.0 else 0.6) + awkward * 3
+        // a four-fret stretch (index on fret 1, little finger on fret 4) is hard on the hand, and worse when an open string sits between
+        // two fretted ones: charge a lot for that, so a plainer shape wins unless it is much further up the neck (same rule as the website)
+        val trapped = (0 until n).any { s -> cur[s] == 0 && (0 until s).any { cur[it] > 0 } && (s + 1 until n).any { cur[it] > 0 } }
+        val stretch = if (span >= 3) 3.0 + (if (trapped) 2.0 else 0.0) else span * 0.3
+        var score = stretch + (n - played.size) * 1.0 + (if (bassPc == root) 0.0 else 0.6) + awkward * 3
         when (mode) {
             Phrasing.Barre -> { if (opens > 0) return; val hasBarre = inst.bass || fretted.count { it == lo } >= 2; score += lo + (if (hasBarre) 0 else 6) }
             Phrasing.Triad -> score += maxFret + (n - 1 - last) * 0.15
@@ -589,9 +593,12 @@ fun planShapes(labels: List<String>, phrasing: Phrasing, tuning: String, inst: S
     }
     val cache = HashMap<String, List<Cand>>()
     fun cands(name: String): List<Cand> = cache.getOrPut(name) {
-        plannerCandidates(name, phrasing, tuning, inst).ifEmpty { listOfNotNull(shapeIn(name, phrasing, tuning, inst)).map { Cand(it, 0.0) } }
+        val all = plannerCandidates(name, phrasing, tuning, inst).ifEmpty { listOfNotNull(shapeIn(name, phrasing, tuning, inst)).map { Cand(it, 0.0) } }
+        // a four-fret stretch (first finger on fret 1, little finger on fret 4) is very hard to hold: the planner drops such shapes whenever the chord has another fingering (as on the website)
+        fun spanOf(sh: Shape): Int { if (sh.keys) return 0; val f = sh.frets.filter { it > 0 }; return if (f.isEmpty()) 0 else f.max() - f.min() }
+        all.filter { spanOf(it.shape) < 3 }.ifEmpty { all }
     }
-    val low = if (inst == "Keys") 0.004 else 0.04
+    val low = if (inst == "Keys") 0.004 else 0.3
     val layers = ArrayList<Layer>(); var prev: Layer? = null
     for ((bi, name) in labels.withIndex()) {
         if (name.isBlank() || name == "N.C.") continue
@@ -600,7 +607,9 @@ fun planShapes(labels: List<String>, phrasing: Phrasing, tuning: String, inst: S
         val st = cs.map { stats(it.shape) }
         val cost = DoubleArray(cs.size); val back = IntArray(cs.size) { -1 }
         for (j in cs.indices) {
-            val unary = low * st[j][1] + 0.9 * cs[j].q                              // a little for sitting high on the neck, more for the awkward fingerings
+            var unary = low * st[j][1] + 0.9 * cs[j].q                              // a little for sitting high on the neck, more for the awkward fingerings
+            // Barre phrasing: barre chords are hard to hold past the 7th fret, so any shape up there costs extra and the opening chord is pushed hard below it (same rule as the website)
+            if (phrasing == Phrasing.Barre && inst != "Keys" && pin == null && st[j][0] > 7.0) unary += 2.5 + (if (prev == null) 10.0 else 0.0)
             var best = 0.0; var bk = -1
             val p = prev
             if (p != null) {

@@ -10,8 +10,8 @@ android {
         applicationId = "nz.co.chordalicious.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 42
-        versionName = "0.9.19"
+        versionCode = 43
+        versionName = "0.9.20"
         buildConfigField("String", "SERVER", "\"https://chordalicious.co.nz\"")
     }
     buildFeatures { compose = true; buildConfig = true }
