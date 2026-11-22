@@ -127,7 +127,7 @@ fun writeChordSheetPdf(out: OutputStream, title: String, artist: String, info: S
                 val num = if (g.first == g.last) "${bars[g.first].num}" else "${bars[g.first].num}–${bars[g.last].num}"
                 text(num, cx + 4, y + 10, 7.5f, false, grey, w - 8)
                 ink.textSize = 17f; ink.typeface = Typeface.DEFAULT_BOLD
-                val tw = ink.measureText(g.label); c.drawText(g.label, cx + (w - tw) / 2, y + 30, ink)
+                val tw = ink.measureText(g.shown); c.drawText(g.shown, cx + (w - tw) / 2, y + 30, ink)
                 lines[k].forEachIndexed { li, t -> text(t, cx, y + boxH + 11 + li * 10.5f, 8.5f, false, ink, 1000f) }
             }
             y += h + 6
@@ -138,8 +138,8 @@ fun writeChordSheetPdf(out: OutputStream, title: String, artist: String, info: S
         val cells = ArrayList<Cell>()
         groups.forEach { g ->
             val n = g.last - g.first + 1
-            if (n >= 4) cells += Cell(g.label, 2, true, n, g.first, g.keyTag != null)
-            else for (q in 0 until n) cells += Cell(if (q == 0) g.label else null, 1, false, 1, g.first + q, q == 0 && g.keyTag != null)
+            if (n >= 4) cells += Cell(g.shown, 2, true, n, g.first, g.keyTag != null)
+            else for (q in 0 until n) cells += Cell(if (q == 0) g.shown else null, 1, false, 1, g.first + q, q == 0 && g.keyTag != null)
         }
         val per = 6; val staffH = 30f
         val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(40, 40, 40); strokeWidth = 1f }

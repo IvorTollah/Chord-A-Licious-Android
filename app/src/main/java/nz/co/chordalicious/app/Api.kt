@@ -6,10 +6,12 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import okhttp3.*
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
@@ -22,7 +24,7 @@ data class Lyric(val t: Double, val text: String)
 data class Song(val title: String, val artist: String, val key: String, val bpm: Double, val bars: List<Bar>,
                 val audioUrl: String = "", val duration: Double = 0.0, val lyrics: List<Lyric> = emptyList(),
                 val artUrl: String = "", val peaks: List<Float> = emptyList(), val favId: String = "", val favCat: String = "", val recording: Boolean = false,
-                val linkUrl: String = "")
+                val linkUrl: String = "", val localAudio: String = "")
 class Tpl(val mode: String, val i: Int, val sig: String, val inst: String, val tun: String, val name: String)
 data class Fav(val id: String, val title: String, val artist: String, val category: String, val hasAudio: Boolean)
 class ApiError(val msg: String, val upgrade: Boolean = false, val login: Boolean = false) : IOException(msg)
@@ -82,7 +84,76 @@ class Api(private val ctx: Context, private val base: String = BuildConfig.SERVE
     }
 
     /** Uploads the chosen audio file and returns the chords. */
-    suspend fun analyse(uri: Uri): Song = withContext(Dispatchers.IO) {
+    suspend fun analyse(uri: Uri): Song {
+        cancelled = false
+        try {
+            return analyseLocal(uri)                                                      // on this phone: no server needed
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e
+        } catch (e: nz.co.chordalicious.app.engine.AnalysisCancelled) { throw kotlinx.coroutines.CancellationException("Cancelled")
+        } catch (e: Throwable) {
+            android.util.Log.w("ChordALicious", "On-device analysis not used (" + e.javaClass.simpleName + ": " + e.message + "), asking the server instead")
+        }
+        return analyseOnServer(uri)
+    }
+
+    private fun cleanTitleArtist(raw: String, artist0: String): Pair<String, String> {
+        val noise = Regex("(official|video|audio|lyrics?|lyric video|hd|hq|4k|remaster(ed)?|live|visuali[sz]er)", RegexOption.IGNORE_CASE)
+        var title = raw.trim(); var artist = artist0.trim()
+        title = Regex("\\([^)]*\\)|\\[[^\\]]*\\]").replace(title) { if (noise.containsMatchIn(it.value)) "" else it.value }
+        title = Regex("\\s{2,}").replace(title, " ").trim(' ', '-', '\u2013', '\u2014')
+        if (title.contains(" - ")) {
+            val left = title.substringBefore(" - "); val right = title.substringAfter(" - ")
+            if (artist.isEmpty() || left.lowercase().contains(artist.lowercase())) { if (artist.isEmpty()) artist = left.trim(); title = right.trim() }
+        }
+        return Pair(title, artist)
+    }
+
+    /** The whole analysis on this phone: decode, listen (the engine), tags and artwork from the file itself. Lyrics are fetched if the server can be reached. */
+    private suspend fun analyseLocal(uri: Uri): Song = withContext(Dispatchers.Default) {
+        val stop = { !isActive || cancelled }
+        val name = displayName(uri).ifBlank { "song" }
+        ctx.cacheDir.listFiles { x -> x.name.startsWith("local_") }?.forEach { it.delete() }
+        val ext = name.substringAfterLast('.', "").lowercase().filter { it.isLetterOrDigit() }.take(5).ifBlank { "mp3" }
+        val f = File(ctx.cacheDir, "local_${System.nanoTime()}.$ext")
+        ctx.contentResolver.openInputStream(uri)?.use { i -> f.outputStream().use { o -> i.copyTo(o) } } ?: throw ApiError("Couldn't read that file.")
+        try {
+            val y = nz.co.chordalicious.app.engine.AudioDecoder.decode(ctx, Uri.fromFile(f), 10 * 60, stop)
+            val res = nz.co.chordalicious.app.engine.Engine(cancelled = stop).transcribe(y, nz.co.chordalicious.app.engine.Engine.SR, true)
+            if (res.measures.isEmpty()) throw ApiError("No chords were found in that file.")
+            // title, artist and artwork: the file's own tags first, then its name
+            var tagTitle = ""; var tagArtist = ""; var art = ""
+            try {
+                val mr = android.media.MediaMetadataRetriever()
+                try {
+                    mr.setDataSource(f.absolutePath)
+                    tagTitle = mr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE) ?: ""
+                    tagArtist = mr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: ""
+                    mr.embeddedPicture?.let { b ->
+                        val mime = if (b.size > 3 && b[0] == 0x89.toByte()) "image/png" else "image/jpeg"
+                        art = "data:$mime;base64," + android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP)
+                    }
+                } finally { mr.release() }
+            } catch (_: Exception) {}
+            val (title, artist) = if (tagTitle.isNotBlank()) cleanTitleArtist(tagTitle, tagArtist) else cleanTitleArtist(name.substringBeforeLast('.').replace('_', ' '), "")
+            var song = parse(JSONObject(res.toJson(title, artist))).copy(artUrl = art, localAudio = f.absolutePath)
+            // lyrics and better artwork, if the server happens to be reachable (never needed, never waited for long)
+            try {
+                val u = "$base/live-info".toHttpUrl().newBuilder().addQueryParameter("title", title).addQueryParameter("artist", artist)
+                    .addQueryParameter("duration", song.duration.toString()).build()
+                val quick = http.newBuilder().callTimeout(6, TimeUnit.SECONDS).build()
+                quick.newCall(Request.Builder().url(u).build()).execute().use { r ->
+                    if (r.isSuccessful) {
+                        val k = JSONObject(r.body!!.string()); val ll = k.optJSONArray("lyric_lines")
+                        val lyr = if (ll == null) emptyList() else (0 until ll.length()).mapNotNull { i -> val o = ll.optJSONObject(i) ?: return@mapNotNull null; val t = o.optString("text", ""); if (t.isBlank()) null else Lyric(o.optDouble("t", 0.0), t) }
+                        song = song.copy(lyrics = lyr, artUrl = if (art.isBlank() && k.optString("art_url").isNotBlank()) k.optString("art_url") else art)
+                    }
+                }
+            } catch (_: Exception) {}
+            song
+        } catch (e: Throwable) { f.delete(); throw e }
+    }
+
+    private suspend fun analyseOnServer(uri: Uri): Song = withContext(Dispatchers.IO) {
         val cr = ctx.contentResolver
         var name = "song.mp3"
         cr.query(uri, null, null, null, null)?.use { c -> if (c.moveToFirst()) { val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME); if (i >= 0) name = c.getString(i) } }
@@ -222,9 +293,17 @@ class Api(private val ctx: Context, private val base: String = BuildConfig.SERVE
             ms.put(o)
         }
         val pk = org.json.JSONArray(); song.peaks.forEach { pk.put(it.toDouble()) }
+        var audioId = song.audioUrl.substringAfterLast('/')
+        if (audioId.isBlank() && song.localAudio.isNotBlank() && !song.recording) {            // analysed on this phone: send the audio copy along (best effort)
+            try {
+                val af = File(song.localAudio)
+                val up = MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("file", af.name, af.asRequestBody("application/octet-stream".toMediaType())).build()
+                http.newCall(Request.Builder().url("$base/audio-copy").post(up).build()).execute().use { r -> if (r.isSuccessful) audioId = JSONObject(r.body!!.string()).optString("audio_id") }
+            } catch (_: Exception) {}
+        }
         val j = JSONObject().put("id", id).put("category", category).put("title", song.title).put("artist", song.artist)
             .put("duration", song.duration).put("bpm", song.bpm).put("key_text", if (song.key.isBlank()) "" else "Key: " + song.key).put("peaks", pk).put("measures", ms)
-            .put("audio_id", song.audioUrl.substringAfterLast('/')).put("yt_link", song.linkUrl).put("share", share && !song.recording).put("kind", if (song.recording) "recording" else "")
+            .put("audio_id", audioId).put("yt_link", song.linkUrl).put("share", share && !song.recording).put("kind", if (song.recording) "recording" else "")
         if (song.artUrl.startsWith("https://") || song.artUrl.startsWith("data:image/")) j.put("art_url", song.artUrl)
         http.newCall(Request.Builder().url("$base/favourites").post(j.toString().toRequestBody("application/json".toMediaType())).build()).execute().use { r ->
             if (!r.isSuccessful) throw detail(r)

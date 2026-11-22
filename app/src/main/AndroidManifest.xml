@@ -5,6 +5,7 @@
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <application
         android:allowBackup="false"
+        android:largeHeap="true"
         android:label="Chord-A-Licious"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

@@ -615,7 +615,8 @@ fun planShapes(labels: List<String>, phrasing: Phrasing, tuning: String, inst: S
             if (p != null) {
                 best = Double.MAX_VALUE
                 for (i in p.cands.indices) {
-                    val c = p.cost[i] + Math.abs(p.st[i][1] - st[j][1]) + 0.5 * Math.abs(p.st[i][0] - st[j][0])
+                    val d = Math.abs(p.st[i][1] - st[j][1]) + 0.5 * Math.abs(p.st[i][0] - st[j][0])
+                    val c = p.cost[i] + d + 0.15 * d * d      // a long jump costs more than the same distance in small steps
                     if (c < best - 1e-9) { best = c; bk = i }
                 }
             }

@@ -64,7 +64,7 @@ import kotlinx.coroutines.withContext
 private fun clock(sec: Double): String { val s = sec.toInt().coerceAtLeast(0); return "%d:%02d".format(s / 60, s % 60) }
 private val PIE = listOf(Color(0xFF38BDF8), Color(0xFF19FF5C), Color(0xFFFBBF24), Color(0xFFA78BFA), Color(0xFFFB7185), Color(0xFF2DD4BF))
 
-class Group(val first: Int, val last: Int, val label: String, val start: Double, val end: Double) { var span = 1; var keyTag: String? = null }
+class Group(val first: Int, val last: Int, val label: String, val start: Double, val end: Double) { var span = 1; var keyTag: String? = null; var shown: String = label }
 
 private class Slice(val name: String, val secs: Double, val plays: Int, val color: Color, val count: Int = 0)
 
@@ -97,7 +97,7 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
     var pos by remember { mutableStateOf(0.0) }
     var dur by remember { mutableStateOf(song.duration) }
     var dragging by remember { mutableStateOf(false) }
-    var audioMsg by remember { mutableStateOf<String?>(if (song.audioUrl.isBlank()) (if (song.linkUrl.isNotBlank()) "No audio in the app for this song. Play it on YouTube and follow the chords." else "No audio to play for this song.") else "Loading the audio…") }
+    var audioMsg by remember { mutableStateOf<String?>(if (song.audioUrl.isBlank() && song.localAudio.isBlank()) (if (song.linkUrl.isNotBlank()) "No audio in the app for this song. Play it on YouTube and follow the chords." else "No audio to play for this song.") else "Loading the audio…") }
     var loadedOnce by remember { mutableStateOf(false) }
     var artBig by remember { mutableStateOf(false) }
     var counting by remember { mutableIntStateOf(0) }
@@ -107,7 +107,10 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
     var speed by remember { mutableFloatStateOf(1f) }
     var volume by remember { mutableFloatStateOf(1f) }
     var shift by remember { mutableIntStateOf(0) }
+    val localAudio = song.localAudio.isNotBlank()                       // analysed on this phone: the key change is done by the player itself
+    val pitchNow = if (localAudio) Math.pow(2.0, shift / 12.0).toFloat() else 1f
     var capo by remember { mutableIntStateOf(0) }
+    var shapeNames by remember { mutableStateOf(false) }          // with a capo on: name chords by the shape fingered (G) rather than the chord that sounds (B)
     var left by remember { mutableStateOf(false) }
     var phrasing by remember { mutableStateOf(Phrasing.Open) }
     var countIn by remember { mutableStateOf(false) }
@@ -166,6 +169,7 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
     var summaryEdits by remember { mutableIntStateOf(0) }
     var freeEdits by remember { mutableIntStateOf(0) }
     var editBar by remember { mutableStateOf<Int?>(null) }
+    var magnify by remember { mutableStateOf<Pair<String, Shape?>?>(null) }      // double-tap a chord diagram (while the song is not playing) to see it large
     var editSound by remember { mutableStateOf<String?>(null) }
     val grid = rememberLazyGridState()
     LaunchedEffect(song.artUrl) { if (song.artUrl.isNotBlank()) art = api.loadArt(song.artUrl) }
@@ -182,6 +186,7 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
     fun sigOf(sh: Shape) = (if (sh.keys) "K" else "F") + sh.frets.joinToString(",")
     fun saveTpl() { scope.launch { try { api.saveTemplates(templates.toMap()) } catch (e: ApiError) { note = e.msg } catch (_: Exception) {} } }
     fun label(i: Int) = transposeChord(sound(i), -capo, preferFlat = false)
+    fun shown(i: Int, lab: String) = if (capo > 0 && !shapeNames) sound(i) else lab            // what is written on screen / in the PDF; the shape itself always follows label()
     // a fingering the player has chosen (for one measure, for every use of the chord, or a saved template)
     fun pinnedAt(i: Int, lab: String): Shape? {
         val k = baseOf(i); val sp = swapBar["${origOf.getOrElse(i) { i }}|$k"] ?: swapAll[k]
@@ -205,21 +210,21 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
     fun needPro(what: String) { note = "$what is part of Pro." }
 
     // ---- audio (reloaded when the key is shifted: the server makes the shifted copy)
-    LaunchedEffect(song.audioUrl, shift) {
-        if (song.audioUrl.isBlank()) return@LaunchedEffect
+    LaunchedEffect(song.audioUrl, song.localAudio, if (localAudio) 0 else shift) {
+        if (song.audioUrl.isBlank() && !localAudio) return@LaunchedEffect
         val wasPlaying = playing; val at = pos
         try { player?.release() } catch (_: Exception) {}
         player = null; playing = false
         audioMsg = if (loadedOnce) "Shifting the audio to the new key..." else "Loading the audio…"
         try {
-            val f = api.downloadAudio(song.audioUrl + if (shift != 0) "?shift=$shift" else "")
-            val mp = withContext(Dispatchers.IO) { MediaPlayer().apply { setDataSource(f.absolutePath); prepare() } }
+            val path = if (localAudio) song.localAudio else api.downloadAudio(song.audioUrl + if (shift != 0) "?shift=$shift" else "").absolutePath
+            val mp = withContext(Dispatchers.IO) { MediaPlayer().apply { setDataSource(path); prepare() } }
             mp.setOnCompletionListener { playing = false; pos = 0.0; mp.seekTo(0) }
             if (mp.duration > 0) dur = mp.duration / 1000.0
             mp.setVolume(volume, volume)
             if (at > 0) mp.seekTo((at * 1000).toInt())
             player = mp; audioMsg = null; loadedOnce = true
-            if (wasPlaying) { mp.start(); try { mp.playbackParams = mp.playbackParams.setSpeed(speed) } catch (_: Exception) {}; playing = true }
+            if (wasPlaying) { mp.start(); try { mp.playbackParams = mp.playbackParams.setSpeed(speed).setPitch(pitchNow) } catch (_: Exception) {}; playing = true }
         } catch (e: kotlinx.coroutines.CancellationException) { throw e                  // a newer key change replaced this load: not an error
         } catch (e: ApiError) { audioMsg = e.msg; if (shift != 0) shift = 0 }
         catch (e: Exception) { audioMsg = "Couldn't load the audio for playback." }
@@ -242,13 +247,13 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
     val keySegs = remember(edits.toMap(), detailed, simplify, bars) { keySegments(bars.indices.map { baseOf(it) }, song.key) }
     val keyStarts = keySegs.drop(1).map { it.start }.toSet()      // a key change always starts a new box, as on the website
     // repeated identical chords in a row share one box
-    val groups = remember(edits.toMap(), shift, capo, detailed, simplify, bars, keySegs) {
+    val groups = remember(edits.toMap(), shift, capo, shapeNames, detailed, simplify, bars, keySegs) {
         val out = ArrayList<Group>(); var i = 0
         while (i < bars.size) {
             val l = label(i); var j = i
             while (j + 1 < bars.size && label(j + 1) == l && (j + 1) !in keyStarts) j++
             val end = if (bars[j].end > bars[j].start) bars[j].end else bars.getOrNull(j + 1)?.start ?: bars[j].start
-            out += Group(i, j, l, bars[i].start, end).also { g -> if (i in keyStarts) keySegs.firstOrNull { it.start == i }?.let { g.keyTag = "Key → " + keyName(it, shift) } }; i = j + 1
+            out += Group(i, j, l, bars[i].start, end).also { g -> g.shown = shown(i, l); if (i in keyStarts) keySegs.firstOrNull { it.start == i }?.let { g.keyTag = "Key → " + keyName(it, shift) } }; i = j + 1
         }
         var col = 0
         out.forEach { g -> var sp = minOf(g.last - g.first + 1, 4); if (sp > 4 - col) sp = 4 - col; g.span = sp; col = (col + sp) % 4 }
@@ -289,8 +294,9 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
         val gi = groups.indexOfLast { it.start <= pos + 0.05 }.coerceAtLeast(0)
         scope.launch { grid.animateScrollToItem((gi - 3).coerceAtLeast(0)) }
     }
-    fun applySpeed() { player?.let { try { it.playbackParams = it.playbackParams.setSpeed(effSpeed) } catch (_: Exception) {} } }
+    fun applySpeed() { player?.let { try { it.playbackParams = it.playbackParams.setSpeed(effSpeed).setPitch(pitchNow) } catch (_: Exception) {} } }
     LaunchedEffect(effSpeed) { if (playing) applySpeed() }
+    LaunchedEffect(shift) { if (playing && localAudio) applySpeed() }
 
     // ---- the Tasty-O-Meter / chord summary (seconds per chord, as on the website)
     val slices = remember(edits.toMap(), shift, detailed, simplify, bars) {
@@ -464,11 +470,11 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
                                 cornerRadius = r, alpha = a, style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx()))
                         }
                         .clip(gs)
-                        .combinedClickable(onClick = { if (!isNow) seek(bars[first].start) }, onLongClick = { editBar = bi })
+                        .combinedClickable(onClick = { if (!isNow) seek(bars[first].start) }, onLongClick = { editBar = bi }, onDoubleClick = { if (!playing) magnify = shown(bi, name) to shapeAt(bi, name) })
                         .padding(horizontal = 6.dp, vertical = 3.dp), Alignment.BottomCenter) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             if (page == playSeg + 1) Text("NEXT", fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = Cal.steel, letterSpacing = 1.sp)
-                            ChordDiagram(name, shapeAt(bi, name), left, width = cw - 20.dp, highlight = isNow, beats = if (isNow) beatsLeft else null, capo = capo, dim = page < playSeg)
+                            ChordDiagram(shown(bi, name), shapeAt(bi, name), left, width = cw - 20.dp, highlight = isNow, beats = if (isNow) beatsLeft else null, capo = capo, dim = page < playSeg)
                         }
                     }
                 }
@@ -523,7 +529,7 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
                         Text(if (g.first == g.last) "${bars[g.first].num}" else "${bars[g.first].num}–${bars[g.last].num}", fontSize = if (busker) 13.sp else 10.sp, color = Cal.muted, modifier = Modifier.align(Alignment.TopStart))
                         if (busker && on && beatsLeft != null) Text("$beatsLeft", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFFFB923C), modifier = Modifier.align(if (slow[g.first] != null) Alignment.BottomEnd else Alignment.TopEnd).padding(end = 2.dp))
                         slow[g.first]?.let { Text("${(it * 100).toInt()}%", fontSize = if (busker) 13.sp else 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFF3B3B), modifier = Modifier.align(Alignment.TopEnd).padding(end = 2.dp)) }
-                        FitText(g.label, if (busker) 34f else 19f, Modifier.padding(top = if (busker) 14.dp else 10.dp))        // long names (C#m, Am/C, F#m7) shrink to sit inside the box
+                        FitText(g.shown, if (busker) 34f else 19f, Modifier.padding(top = if (busker) 14.dp else 10.dp))        // long names (C#m, Am/C, F#m7) shrink to sit inside the box
                         DropdownMenu(expanded = menuFor == gi, onDismissRequest = { menuFor = null }) {
                             DropdownMenuItem(text = { Text("Edit chord") }, onClick = { menuFor = null; editBar = g.first })
                             DropdownMenuItem(text = { Text("Delete chord") }, onClick = { menuFor = null; editGroup(g, "N.C.") })
@@ -584,8 +590,8 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    val info = listOfNotNull(keyNow.takeIf { it.isNotBlank() }?.let { "Key $it" }, song.bpm.takeIf { it > 0 }?.let { "${it.toInt()} bpm" }, if (capo > 0) "Capo $capo" else null, if (instrument != "Guitar") instrument else if (tuning != "Standard") "$tuning tuning" else null).joinToString("  ·  ")
-                    val diagrams = groups.map { it.label }.distinct().map { l -> val gi = groups.first { it.label == l }; PrintDiagram(l, shapeAt(gi.first, l)) }
+                    val info = listOfNotNull(keyNow.takeIf { it.isNotBlank() }?.let { "Key $it" }, song.bpm.takeIf { it > 0 }?.let { "${it.toInt()} bpm" }, if (capo > 0) "Capo $capo, " + (if (shapeNames) "shape names" else "sounding chord names") else null, if (instrument != "Guitar") instrument else if (tuning != "Standard") "$tuning tuning" else null).joinToString("  ·  ")
+                    val diagrams = groups.map { it.label }.distinct().map { l -> val gi = groups.first { it.label == l }; PrintDiagram(gi.shown, shapeAt(gi.first, l)) }
                     ctx.contentResolver.openOutputStream(uri)?.use { writeChordSheetPdf(it, titleOv ?: song.title, song.artist, info, groups, bars, song.lyrics, diagrams, left, capo, printDiagrams, printLyrics, printCondensed, printCols) }
                 }
                 saveMsg = "PDF saved."
@@ -628,6 +634,19 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
             confirmButton = { TextButton(onClick = { showTpl = false }) { Text("Done") } },
             dismissButton = { if (mine.isNotEmpty()) TextButton(onClick = { mine.forEach { templates.remove(it.key) }; saveTpl() }) { Text("Remove all", color = Cal.bad) } })
     }
+    // A song that is already a Favourite saves its chord edits by itself, 1.5 s after the last change (as the website does)
+    val chordsNow = bars.indices.map { edits[it] ?: bars[it].chord }
+    var lastSavedChords by remember { mutableStateOf<List<String>?>(if (song.favId.isNotEmpty()) chordsNow else null) }
+    LaunchedEffect(chordsNow, favId) {
+        if (favId.isEmpty() || chordsNow == lastSavedChords) return@LaunchedEffect
+        delay(1500)
+        saving = true
+        try {
+            api.saveFavourite(song.copy(title = titleOv ?: song.title), bars, chordsNow, edits.keys.toSet(), favCat, favId)
+            lastSavedChords = chordsNow; saveMsg = "Saved automatically."
+        } catch (e: ApiError) { saveMsg = e.msg } catch (e: Exception) { saveMsg = "Couldn't save your changes (" + (e.message ?: e.javaClass.simpleName) + ")." }
+        saving = false
+    }
     if (saveDlg) {
         var cat by remember { mutableStateOf(favCat) }
         var ttl by remember { mutableStateOf(titleOv ?: song.title) }
@@ -637,7 +656,7 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
         AlertDialog(onDismissRequest = { saveDlg = false }, containerColor = Cal.panel,
             title = { Text(if (favId.isNotEmpty()) "Save changes" else "Save to Favourites") },
             text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Your edits, key and chords are saved with the song" + if (song.audioUrl.isNotBlank()) " and a copy of the audio." else ".", color = Cal.muted, fontSize = 13.sp)
+                Text("Your edits, key and chords are saved with the song" + if (song.audioUrl.isNotBlank() || localAudio) " and a copy of the audio." else ".", color = Cal.muted, fontSize = 13.sp)
                 OutlinedTextField(ttl, { ttl = it }, label = { Text("Song title") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(cat, { cat = it }, label = { Text("Category (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (oldCats.isNotEmpty()) {
@@ -649,7 +668,7 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
                         }
                     }
                 }
-                if (song.audioUrl.isNotBlank() && !song.recording)
+                if ((song.audioUrl.isNotBlank() || localAudio) && !song.recording)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(shareDb, { shareDb = it })
                         Text("Add this song to the identification database so other Chord-ers can find it", fontSize = 12.sp, color = Cal.muted, modifier = Modifier.weight(1f))
@@ -661,7 +680,7 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
                     scope.launch {
                         try {
                             val id = api.saveFavourite(song.copy(title = saveTitle), bars, bars.indices.map { edits[it] ?: bars[it].chord }, edits.keys.toSet(), cat.trim(), useId, shareDb)
-                            favId = id; favCat = cat.trim(); titleOv = ttl.trim().ifBlank { null }; saveMsg = "Saved to Favourites."
+                            favId = id; favCat = cat.trim(); titleOv = ttl.trim().ifBlank { null }; lastSavedChords = bars.indices.map { edits[it] ?: bars[it].chord }; saveMsg = "Saved to Favourites."
                         } catch (e: ApiError) { saveMsg = e.msg } catch (e: Exception) { saveMsg = "Couldn't save (" + (e.message ?: e.javaClass.simpleName) + ")." }
                         saving = false
                     }
@@ -681,6 +700,10 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
                 confirmButton = { TextButton(onClick = { dupHit = null; dupDo?.invoke(hit.id) }) { Text("Replace saved") } },
                 dismissButton = { Row { TextButton(onClick = { dupHit = null }) { Text("Cancel") }; TextButton(onClick = { dupHit = null; dupDo?.invoke("") }) { Text("Save anyway") } } })
         }
+    }
+    magnify?.let { (nm, sh) ->
+        AlertDialog(onDismissRequest = { magnify = null }, containerColor = Cal.panel, confirmButton = { TextButton(onClick = { magnify = null }) { Text("Close") } },
+            text = { Box(Modifier.fillMaxWidth(), Alignment.Center) { ChordDiagram(nm, sh, left, width = 240.dp, highlight = true, capo = capo) } })
     }
     androidx.activity.compose.BackHandler(enabled = !showOptions && editBar == null && editSound == null && slowFor == null) { onBack() }
     androidx.activity.compose.BackHandler(enabled = busker && !showOptions && editBar == null && editSound == null && slowFor == null) { busker = false }
@@ -720,18 +743,18 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
                 Panel(if (side) Modifier.fillMaxSize() else Modifier.fillMaxWidth(), pad = 6.dp, space = 2.dp) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (buskerShape == 1) {
-                            Text(nowLab, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Cal.steel)
-                            if (ni >= 0) Text("→  ${label(ni)}", fontSize = 15.sp, color = Cal.muted)
+                            Text(shown(cur, nowLab), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Cal.steel)
+                            if (ni >= 0) Text("→  ${shown(ni, label(ni))}", fontSize = 15.sp, color = Cal.muted)
                         } else Text("CHORD SHAPE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Cal.muted, letterSpacing = 1.sp)
                         Spacer(Modifier.weight(1f))
                         NavBtn(onClick = { buskerShape = if (buskerShape == 0) 1 else 0 }, modifier = Modifier.size(34.dp, 30.dp)) { c -> Text(if (buskerShape == 0) "▾" else "▴", color = c, fontSize = 14.sp) }
                         NavBtn(onClick = { buskerShape = 2 }, modifier = Modifier.size(34.dp, 30.dp)) { c -> Text("✕", color = c, fontSize = 13.sp) }
                     }
                     if (buskerShape == 0) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
-                        ChordDiagram(nowLab, shapeAt(cur, nowLab), left, width = nowW, highlight = true, beats = beatsLeft, capo = capo)
+                        ChordDiagram(shown(cur, nowLab), shapeAt(cur, nowLab), left, width = nowW, highlight = true, beats = beatsLeft, capo = capo)
                         if (ni >= 0) Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("NEXT", fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = Cal.steel, letterSpacing = 1.sp)
-                            ChordDiagram(label(ni), shapeAt(ni, label(ni)), left, width = if (side) nextW else 100.dp, capo = capo)
+                            ChordDiagram(shown(ni, label(ni)), shapeAt(ni, label(ni)), left, width = if (side) nextW else 100.dp, capo = capo)
                         }
                     }
                 }
@@ -804,6 +827,9 @@ fun ResultScreen(api: Api, song: Song, full: Boolean, onBack: () -> Unit) {
                 }
                 IconStepper(ICON_CAPO, 32f, 32f, "Apply Capo", if (capo == 0) "off" else "fret $capo", locked = !full, onMinus = { if (!full) needPro("The capo") else if (capo > 0) capo-- },
                     onPlus = { if (!full) needPro("The capo") else if (capo < 9) capo++ })
+                if (capo > 0) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.weight(1f)) { Text("Shape names"); Text(if (shapeNames) "Chords are named by the shape you finger" else "Chords are named by the sound they make", fontSize = 12.sp, color = Cal.muted) }
+                    Switch(shapeNames, { shapeNames = it }, colors = silverSwitch) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         SvgIcon(ICON_INSTRUMENT, 24f, 24f, 30.dp, Cal.steel); Text("Instrument", fontWeight = FontWeight.SemiBold); if (!full) Text("🔒") }

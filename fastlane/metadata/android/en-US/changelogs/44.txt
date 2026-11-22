@@ -1,0 +1,2 @@
+Songs are now analysed on your phone: pick an audio file and the chords appear without needing the Chord-A-Licious server (the server is used only as a fallback, and for lyrics when it is online). The key change also works on-device for these songs. Saving to Favourites still stores a copy of the audio.
+Changes to chords in a saved favourite are now saved automatically. Chord shapes now stay closer together along the neck, with fewer long jumps.
