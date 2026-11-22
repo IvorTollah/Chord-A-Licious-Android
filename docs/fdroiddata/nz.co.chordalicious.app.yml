@@ -1,5 +1,7 @@
-# Draft recipe for https://gitlab.com/fdroid/fdroiddata  (metadata/nz.co.chordalicious.app.yml)
-# Fill in the TODO lines once the source is public, then open a merge request there.
+AntiFeatures:
+  NonFreeNet:
+    en-US: The chords are worked out by the Chord-A-Licious server (closed source),
+      which the app needs to work.
 Categories:
   - Multimedia
 License: GPL-3.0-or-later
@@ -7,10 +9,6 @@ AuthorWebSite: https://chordalicious.co.nz
 WebSite: https://chordalicious.co.nz
 SourceCode: https://github.com/IvorTollah/Chord-A-Licious-Android
 IssueTracker: https://github.com/IvorTollah/Chord-A-Licious-Android/issues
-
-AntiFeatures:
-  NonFreeNet:
-    en-US: The chords are worked out by the Chord-A-Licious server (closed source), which the app needs to work.
 
 AutoName: Chord-A-Licious
 
